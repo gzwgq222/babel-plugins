@@ -8,6 +8,7 @@ const postcss = require('postcss')
 const postcssScss = require('postcss-scss')
 
 const sourcesPath = '../../src'
+const dynamicClassReg = /{{(.+)\?(.+):(.+)}}/
 
 // https://www.postcss.com.cn/
 
