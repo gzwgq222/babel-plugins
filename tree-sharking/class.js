@@ -56,9 +56,18 @@ const parserWxml = code => {
   const parser = new htmlparser2.Parser({
     onattribute(name, value) {
       if (names.find(el => el === name) && value.trim()) {
-        const className = value.split(' ').filter(val => val)
+        const classNamesArr = value.split(' ').filter(val => val)
 
-        classNames.push(...className)
+        classNamesArr.forEach(className => {
+          // 清除以 {{ 开头的字符
+          if (className.includes('{{')) return
+          // 转换 "'className'" 为 "className"
+          const matchs = className.match(/(\w|\d|_|-)+/)
+
+          if (matchs) {
+            classNames.push(matchs[0])
+          }
+        })
       }
     }
   })
@@ -66,7 +75,6 @@ const parserWxml = code => {
   parser.write(code)
   parser.end()
 
-  console.log(222, classNames)
   return classNames
 }
 
@@ -75,8 +83,34 @@ const removeUnuseClass = postcss.plugin('check-depth', classNameKeys => {
     root.walkRules(rule => {
       const { selector } = rule
 
+      // : :: 伪类不做清除处理
+      if (selector.includes(':')) return
+      // console.log('selector', selector, selector.match(/\.()/))
+
+      const getSelector = selector => {
+        let path = selector
+
+        const loop = (joinPath, rule) => {
+          if (
+            joinPath.includes('&') &&
+            !joinPath.includes('&.') &&
+            rule.parent
+          ) {
+            path = path.replace('&', rule.parent.selector)
+
+            return loop(path, rule.parent)
+          } else {
+            return path
+          }
+        }
+
+        return loop(path, rule)
+      }
+
       if (/\./g.test(selector)) {
-        const exsit = classNameKeys.some(el => selector.includes(el))
+        const completeSelector = getSelector(selector)
+
+        const exsit = classNameKeys.some(el => completeSelector.includes(el))
 
         if (!exsit) {
           const preNode = rule.prev()
@@ -92,11 +126,12 @@ const removeUnuseClass = postcss.plugin('check-depth', classNameKeys => {
 
     root.walkAtRules(rule => {
       const { name, params } = rule
+
       if (name === 'keyframes') {
         const exsit = classNameKeys.some(el => params.includes(el))
 
         if (!exsit) {
-          console.log(11, rule.name)
+          // console.log(11, rule.name)
           rule.remove()
         }
       }
@@ -108,6 +143,7 @@ const parserScss = (css, classNameKeys, scssPath) => {
   postcss([removeUnuseClass(classNameKeys)])
     .process(css, { parser: postcssScss })
     .then(result => {
+      console.log('555', classNameKeys.length)
       // fs.writeFileSync(scssPath, result.css)
     })
 }
@@ -121,7 +157,6 @@ const handleRemoveUnuseClass = ({ wxmlPath, scssPath }) => {
     encoding: 'utf-8'
   })
 
-  // console.log('scssSource', scssSource)
   const classNames = parserWxml(wxmlSource)
 
   parserScss(scssSource, classNames, scssPath)
@@ -148,8 +183,9 @@ getDelModuleFilesPath(sourcesPath)
   })
   .then(res => {
     for (const item of res) {
-      if (item.scssPath.includes('errorTipsView.scss')) {
-        // if (item.scssPath.includes('groupIndex.scss')) {
+      // if (item.scssPath.includes('errorTipsView.scss')) {
+      // if (item.scssPath.includes('groupIndex.scss')) {
+      if (item.scssPath.includes('againBuyModal.scss')) {
         handleRemoveUnuseClass(item)
       }
     }
