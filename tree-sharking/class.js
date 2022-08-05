@@ -6,6 +6,9 @@ const prettier = require('prettier')
 const htmlparser2 = require('htmlparser2')
 const postcss = require('postcss')
 const postcssScss = require('postcss-scss')
+// const CSSselect = require('css-select')
+// const purifycss = require('purify-css')
+// const postcssNested = require('postcss-nested')
 
 const sourcesPath = '../../src'
 const dynamicClassReg = /{{(.+)\?(.+):(.+)}}/
@@ -78,10 +81,12 @@ const parserWxml = code => {
   return classNames
 }
 
+const ruleNodeExsit = nodes => nodes.some(node => node.type === 'rule')
+
 const removeUnuseClass = postcss.plugin('check-depth', classNameKeys => {
   return root => {
     root.walkRules(rule => {
-      const { selector } = rule
+      const { selector, nodes } = rule
 
       // : :: 伪类不做清除处理
       if (selector.includes(':')) return
@@ -100,26 +105,52 @@ const removeUnuseClass = postcss.plugin('check-depth', classNameKeys => {
 
             return loop(path, rule.parent)
           } else {
-            return path
+            return path.replace('&', '').replace('.', '')
           }
         }
 
         return loop(path, rule)
       }
 
-      if (/\./g.test(selector)) {
+      // 只处理 .age 的类选择器
+      if (/(\.|&)/g.test(selector)) {
         const completeSelector = getSelector(selector)
 
         const exsit = classNameKeys.some(el => completeSelector.includes(el))
 
-        if (!exsit) {
+        console.log(
+          111,
+          completeSelector,
+          !exsit ? '可能不存在' : '',
+          !ruleNodeExsit(nodes) ? '最里层' : ''
+        )
+
+        // 在 wxml 中不存在引用关系且内部不包含选择器的才能删除
+        if (!exsit && !ruleNodeExsit(nodes)) {
+          console.log('不存在: ', completeSelector, selector)
           const preNode = rule.prev()
 
+          // 删除注释
           if (preNode && preNode.type === 'comment') {
             preNode.remove()
           }
 
           rule.remove()
+
+          // 向上查找对空的父节点做删除处理
+          const removeParentNodeLoop = node => {
+            if (!node.parent) return
+
+            // 不存在 rule 节点
+            if (!ruleNodeExsit(node.parent.nodes)) {
+              console.log(222, '循环删除', node.parent.selector)
+              node.parent.remove()
+            }
+
+            removeParentNodeLoop(node.parent)
+          }
+
+          removeParentNodeLoop(rule)
         }
       }
     })
@@ -140,10 +171,12 @@ const removeUnuseClass = postcss.plugin('check-depth', classNameKeys => {
 })
 
 const parserScss = (css, classNameKeys, scssPath) => {
+  console.log(333, classNameKeys)
+
   postcss([removeUnuseClass(classNameKeys)])
     .process(css, { parser: postcssScss })
     .then(result => {
-      console.log('555', classNameKeys.length)
+      // console.log('555', classNameKeys)
       // fs.writeFileSync(scssPath, result.css)
     })
 }
@@ -156,6 +189,15 @@ const handleRemoveUnuseClass = ({ wxmlPath, scssPath }) => {
   const scssSource = fs.readFileSync(scssPath, {
     encoding: 'utf-8'
   })
+
+  // postcss()
+  // .process(scssSource, { parser: postcssScss })
+  // .then(result => {
+  //   let options = {
+  //     output: scssPath
+  //   }
+  //   purifycss(wxmlSource,  result.css, options)
+  // })
 
   const classNames = parserWxml(wxmlSource)
 
@@ -192,3 +234,11 @@ getDelModuleFilesPath(sourcesPath)
   })
 
 // hover-class  errorTipsView.wxml
+
+// &-test {
+// }
+
+// &-a {
+//   &-b {
+//   }
+// }
