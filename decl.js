@@ -7,6 +7,32 @@ const sourcesPath = '../../src'
 
 let declMap = {}
 
+const strSize = (str, charset) => {
+  let total = 0
+
+  charset = charset.toLowerCase() || ''
+
+  for (let i = 0; i < str.length; i++) {
+    const charCode = str.charCodeAt(i)
+
+    if (charset === 'utf-16' || charset === 'utf16') {
+      total += charCode <= 0xffff ? 2 : 4
+    } else {
+      if (charCode <= 0x007f) {
+        total += 1
+      } else if (charCode <= 0x07ff) {
+        total += 2
+      } else if (charCode <= 0xffff) {
+        total += 3
+      } else {
+        total += 4
+      }
+    }
+  }
+
+  return total
+}
+
 // https://www.postcss.com.cn/
 
 // 根据路径获取文件、文件夹
@@ -52,6 +78,7 @@ const collectDecl = postcss.plugin('collect-decl', () => {
     root.walkDecls(decl => {
       const { prop, value } = decl
       const declKey = `${prop}:${value}`
+
       if (declKey.length < 20) {
         declMap[declKey] = (declMap[declKey] || 0) + 1
       }
@@ -62,14 +89,14 @@ const collectDecl = postcss.plugin('collect-decl', () => {
 })
 
 const parserScss = css => {
-  postcss([collectDecl()]).process(css, { parser: postcssScss })
+  postcss([collectDecl()])
+    .process(css, { parser: postcssScss })
+    .then(result => {})
 }
 
 getDelModuleFilesPath(sourcesPath)
   .then(filePaths => {
     const scssFilePaths = getScssFilePath(filePaths)
-
-    console.log(333, scssFilePaths.length)
 
     return scssFilePaths
   })
@@ -81,26 +108,60 @@ getDelModuleFilesPath(sourcesPath)
 
       parserScss(scssSource)
     }
+
     const list = []
 
+    // console.log(111, declMap)
+
+    const getStr = (name, counts) =>
+      new Array(counts).fill(`${name};`).reduce((pre, cur) => pre + cur, '')
+
+    const getStrSize = str => (strSize(str, 'utf-8') / 1000).toFixed(1)
+
     for (const key in declMap) {
+      const counts = declMap[key]
+
+      const declStr = getStr(key, counts)
+
       list.push({
         name: key,
-        counts: declMap[key]
+        counts,
+        size: getStrSize(declStr)
       })
     }
 
     const descList = list.sort((a, b) => b.counts - a.counts)
-    const data30 = descList.slice(0, 30)
-    console.log(
-      'name',
-      data30.map(el => el.name)
+
+    const countsMin100 = descList.filter(el => el.counts >= 100)
+    // strSize
+
+    // console.log(
+    //   'name',
+    //   data30.map(el => el.name)
+    // )
+    // console.log(
+    //   'counts',
+    //   data30.map(el => el.counts)
+    // )
+
+    const analyzeRes = countsMin100.reduce(
+      (pre, cur) => {
+        pre.name.push(cur.name)
+        pre.count.push(cur.counts)
+        pre.val.push(cur.size)
+        pre.size = pre.size + Number(cur.size)
+
+        return pre
+      },
+      {
+        name: [],
+        count: [],
+        val: [],
+        size: 0
+      }
     )
-    console.log(
-      'counts',
-      data30.map(el => el.counts)
-    )
-    console.log('555', data30)
+
+    console.log('555', analyzeRes)
 
     fs.writeJSONSync('./decl.json', descList)
   })
