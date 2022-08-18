@@ -215,5 +215,6 @@ getDelModuleFilesPath(sourcesPath)
 
     // console.log('base64：', `${base64ListSizes}KB`)
 
-    fs.writeJSONSync('./decl.json', listDecs)
+    fs.writeJSONSync('./base64.json', base64ListDecs)
+    fs.writeJSONSync('./declMorethanOneKB.json', sizeBeyondOneKbList)
   })
