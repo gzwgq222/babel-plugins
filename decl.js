@@ -5,9 +5,10 @@ const fs = require('fs-extra')
 
 const sourcesPath = '../../src'
 
-let declMap = {}
+const declMap = {}
+const base64Map = {}
 
-const strSize = (str, charset) => {
+const strSize = (str, charset = 'utf8') => {
   let total = 0
 
   charset = charset.toLowerCase() || ''
@@ -73,13 +74,15 @@ const getDelModuleFilesPath = (() => {
 const getScssFilePath = filesPath =>
   filesPath.filter(path => /.scss$/.test(path))
 
-const collectDecl = postcss.plugin('collect-decl', () => {
+const collectDecl = postcss.plugin('collect-decl', scssPath => {
   return root => {
     root.walkDecls(decl => {
       const { prop, value } = decl
       const declKey = `${prop}:${value}`
 
-      if (declKey.length < 20) {
+      if (value.includes('data:image')) {
+        base64Map[scssPath] = (base64Map[scssPath] || '') + value
+      } else {
         declMap[declKey] = (declMap[declKey] || 0) + 1
       }
     })
@@ -88,8 +91,8 @@ const collectDecl = postcss.plugin('collect-decl', () => {
   }
 })
 
-const parserScss = css => {
-  postcss([collectDecl()])
+const parserScss = (css, scssPath) => {
+  postcss([collectDecl(scssPath)])
     .process(css, { parser: postcssScss })
     .then(result => {})
 }
@@ -106,18 +109,20 @@ getDelModuleFilesPath(sourcesPath)
         encoding: 'utf-8'
       })
 
-      parserScss(scssSource)
+      parserScss(scssSource, scssPath)
     }
 
     const list = []
+    const base64List = []
 
     // console.log(111, declMap)
 
     const getStr = (name, counts) =>
       new Array(counts).fill(`${name};`).reduce((pre, cur) => pre + cur, '')
 
-    const getStrSize = str => (strSize(str, 'utf-8') / 1000).toFixed(1)
+    const getStrSize = str => (strSize(str) / 1000).toFixed(1)
 
+    // 样式 decl
     for (const key in declMap) {
       const counts = declMap[key]
 
@@ -130,21 +135,43 @@ getDelModuleFilesPath(sourcesPath)
       })
     }
 
-    const descList = list.sort((a, b) => b.counts - a.counts)
+    // base64
+    for (const key in base64Map) {
+      const base64 = base64Map[key]
 
-    const countsMin100 = descList.filter(el => el.counts >= 100)
-    // strSize
+      base64List.push({
+        name: key,
+        size: getStrSize(base64)
+      })
+    }
 
-    // console.log(
-    //   'name',
-    //   data30.map(el => el.name)
-    // )
-    // console.log(
-    //   'counts',
-    //   data30.map(el => el.counts)
-    // )
+    //
+    // const descList = list.sort((a, b) => b.counts - a.counts)
 
-    const analyzeRes = countsMin100.reduce(
+    const sizeBeyondOneKbList = list
+      .filter(el => el.size >= 1)
+      .sort((a, b) => b.size - a.size)
+
+    const sizeBeyondOneKbTotals = sizeBeyondOneKbList.reduce(
+      (pre, cur) => {
+        pre.name.push(cur.name)
+        pre.count.push(cur.counts)
+        pre.val.push(cur.size)
+        pre.size = pre.size + Number(cur.size)
+
+        return pre
+      },
+      {
+        name: [],
+        count: [],
+        val: [],
+        size: 0
+      }
+    )
+    const listDecs = list.sort((a, b) => b.counts - a.counts)
+    const countBeyond100 = listDecs.filter(el => el.counts >= 100)
+
+    const countBeyond100Totals = countBeyond100.reduce(
       (pre, cur) => {
         pre.name.push(cur.name)
         pre.count.push(cur.counts)
@@ -161,7 +188,32 @@ getDelModuleFilesPath(sourcesPath)
       }
     )
 
-    console.log('555', analyzeRes)
+    const base64ListDecs = base64List.sort((a, b) => b.size - a.size)
 
-    fs.writeJSONSync('./decl.json', descList)
+    const base64ListTotals = base64ListDecs.reduce(
+      (pre, cur) => {
+        pre.name.push(cur.name.slice(10))
+        pre.val.push(cur.size)
+        pre.size = pre.size + Number(cur.size)
+
+        return pre
+      },
+      {
+        name: [],
+        val: [],
+        size: 0
+      }
+    )
+
+    // delivery/pages/account/account.scss
+
+    console.log('base64：', base64ListTotals)
+
+    // console.log('重复设置 99 次：', countBeyond100Totals)
+
+    // console.log('样式属性大小超 1KB 的属性总计：', sizeBeyondOneKbTotals)
+
+    // console.log('base64：', `${base64ListSizes}KB`)
+
+    fs.writeJSONSync('./decl.json', listDecs)
   })
