@@ -2,11 +2,17 @@ const path = require('path')
 const postcss = require('postcss')
 const postcssScss = require('postcss-scss')
 const fs = require('fs-extra')
+const htmlparser2 = require('htmlparser2')
 
 const sourcesPath = '../../src'
 
 const declMap = {}
 const base64Map = {}
+
+const flexKeys = ['flex', 'flex-center-xy', 'flex-column', 'flex-row']
+
+let flexTotal = 0
+let onece = 0
 
 const strSize = (str, charset = 'utf8') => {
   let total = 0
@@ -91,6 +97,40 @@ const collectDecl = postcss.plugin('collect-decl', scssPath => {
   }
 })
 
+const parserWxml = code => {
+  const parser = new htmlparser2.Parser({
+    onattribute(name, value) {
+      if (name === 'class') {
+        const valArr = value.split(' ')
+        const matchNumbers = flexKeys.reduce((pre, cur) => {
+          if (valArr.find(el => el === cur)) {
+            pre += 1
+          }
+
+          return pre
+        }, 0)
+
+        // console.log(222, name, value)
+
+        if (matchNumbers > 1) {
+          // 在同一个元素上使用 flexKeys 中的类多次
+          flexTotal += 1
+          // console.log('重复', matchNumbers, value.split(' '))
+        } else if (matchNumbers === 1 && !valArr.find(el => el === 'flex')) {
+          // 使用 flexKeys 中的类且不是 flex 类，可替换为 flex 类，减少体积
+          onece += 1
+          // console.log(333, valArr)
+        }
+      }
+    }
+  })
+
+  parser.write(code)
+  parser.end()
+
+  return []
+}
+
 const parserScss = (css, scssPath) => {
   postcss([collectDecl(scssPath)])
     .process(css, { parser: postcssScss })
@@ -109,8 +149,22 @@ getDelModuleFilesPath(sourcesPath)
         encoding: 'utf-8'
       })
 
+      const wxmlPath = scssPath.replace('.scss', '.wxml')
+      const sourceWxml =
+        fs.existsSync(wxmlPath) &&
+        fs.readFileSync(wxmlPath, {
+          encoding: 'utf-8'
+        })
+
       parserScss(scssSource, scssPath)
+
+      // if (wxmlPath.includes('refundApply')) {
+      parserWxml(sourceWxml)
+      // }
     }
+
+    console.log('在同一个元素上使用 flexKeys 中的类多次：', `${flexTotal} 次`)
+    console.log('使用 flexKeys 中的类且不是 flex 类：', `${onece} 次`)
 
     const list = []
     const base64List = []
@@ -209,12 +263,10 @@ getDelModuleFilesPath(sourcesPath)
 
     console.log('base64：', base64ListTotals)
 
-    // console.log('重复设置 99 次：', countBeyond100Totals)
+    console.log('重复设置 99 次：', countBeyond100Totals)
 
-    // console.log('样式属性大小超 1KB 的属性总计：', sizeBeyondOneKbTotals)
+    console.log('样式属性大小超 1KB 的属性总计：', sizeBeyondOneKbTotals)
 
-    // console.log('base64：', `${base64ListSizes}KB`)
-
-    fs.writeJSONSync('./base64.json', base64ListDecs)
-    fs.writeJSONSync('./declMorethanOneKB.json', sizeBeyondOneKbList)
+    // fs.writeJSONSync('./base64.json', base64ListDecs)
+    // fs.writeJSONSync('./declMorethanOneKB.json', sizeBeyondOneKbList)
   })
